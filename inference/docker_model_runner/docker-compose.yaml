@@ -1,0 +1,34 @@
+services:  
+  # Communicate with Large Language Model via Docker Model Runner
+  docker_model_runner:
+    provider:
+      type: model
+      options:
+        model: ${MODEL_NAME}
+  # # Communicate with Local Docker MCP Servers
+  # gateway-local:
+  #   image: docker/mcp-gateway
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   command:
+  #     - --transport=streaming
+  #     - --port=9011
+  #     # Names of local servers to connect to
+  #     - --servers=duckduckgo
+  # # Communicate with Remote Docker MCP Servers
+  # gateway-remote:
+  #   environment:
+  #   - STRIPE_SECRETS
+  #   # - HF_SECRETS
+  #   image: docker/mcp-gateway
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     # copy my custom catalog file into the container
+  #     - ./catalog.yaml:/catalog.yaml  
+  #   command:
+  #     - --transport=streaming
+  #     - --port=8080
+  #     # Names of remote servers to connect to
+  #     - --servers=huggingface
+  #     # Names must map to URLs in catalog.yaml
+  #     - --catalog=/catalog.yaml

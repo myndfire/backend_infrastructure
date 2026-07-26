@@ -1,0 +1,16 @@
+registry:
+  quote-server:
+    remote:
+      url: "http://host.docker.internal:9000/mcp"
+      transport_type: http
+  duckduckgo:
+    remote:
+      url: "http://duckduckgo:8080/mcp"
+      transport_type: http
+  huggingface:
+    remote:
+      url: "https://huggingface.co/mcp"
+      transport_type: http
+      tools:
+        - paper_search
+        - space_search

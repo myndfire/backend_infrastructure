@@ -1,0 +1,15 @@
+services:
+
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    environment:
+      # ⚠️ WEBUI_AUTH=False is for local development only. Never expose publicly without auth.
+      - WEBUI_AUTH=False
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    ports:
+      - "8082:8080"
+    volumes:
+      - open-webui_data:/app/backend/data
+volumes:
+  open-webui_data:

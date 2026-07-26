@@ -1,0 +1,33 @@
+services:
+  grafana:
+    image: grafana/otel-lgtm:latest
+    container_name: grafana_and_prometheus
+    #https://hub.docker.com/r/grafana/otel-lgtm
+    #https://grafana.com/blog/an-opentelemetry-backend-in-a-docker-image-introducing-grafana-otel-lgtm/
+    ports:
+      - "3000:3000"   # Grafana UI
+      - "4317:4317"   # OTLP/gRPC
+      - "4318:4318"   # OTLP/HTTP
+    restart: unless-stopped
+
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    environment:
+      - WEBUI_AUTH=False
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - ENABLE_OTEL=true
+      - ENABLE_OTEL_TRACES=true
+      - ENABLE_OTEL_METRICS=true
+      - OTEL_EXPORTER_OTLP_INSECURE=false # Set to true only for local development without TLS
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://grafana:4317
+      - OTEL_SERVICE_NAME=open-webui
+      # You may set OTEL_BASIC_AUTH_USERNAME/PASSWORD here if needed
+    ports:
+      - "8082:8080"
+    volumes:
+      - open-webui_data:/app/backend/data
+    depends_on:
+      - grafana
+volumes:
+  open-webui_data:
