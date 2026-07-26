@@ -22,13 +22,19 @@ Wait ~30–60 seconds for Elasticsearch to finish startup and for Kibana to conn
 
 ## Verification
 
-Check Elasticsearch:
+Check Elasticsearch from inside the container:
+
+```bash
+docker compose exec elasticsearch curl -s localhost:9200
+```
+
+You should see a JSON response with cluster name, version, and tagline.
+
+Check from the host:
 
 ```bash
 curl http://localhost:9200
 ```
-
-You should see a JSON response with cluster name, version, and tagline.
 
 Check Kibana:
 

@@ -35,6 +35,14 @@ docker compose ps
 
 You should see `mongodb` with status `healthy` (after ~30s startup).
 
+Verify the database responds to pings from inside the container:
+
+```bash
+docker compose exec mongodb mongosh -u admin -p <password> --authenticationDatabase admin --eval "db.adminCommand('ping')"
+```
+
+Replace `<password>` with the value from your `.env` file.
+
 View logs:
 
 ```bash

@@ -9,6 +9,12 @@ RabbitMQ 3 (management image) with the Management UI enabled.
 
 ## Setup
 
+> **Note:** All commands below assume you are in this directory (`messaging/rabbitmq`).
+
+```bash
+cd messaging/rabbitmq
+```
+
 Start the broker:
 
 ```bash
@@ -25,7 +31,15 @@ Check service status:
 docker compose ps
 ```
 
-Access the Management UI:
+Check the node health from inside the container:
+
+```bash
+docker compose exec rabbitmq rabbitmqctl status
+```
+
+You should see output showing node uptime, listeners, and memory usage.
+
+Access the Management UI in your browser:
 
 ```bash
 open http://localhost:15672
@@ -50,8 +64,8 @@ Default credentials (change before any network exposure):
 Create a new admin user and delete `guest`:
 
 ```bash
-# Enter the container
-docker exec -it rabbitmq bash
+# Enter the container (uses the service name from docker-compose.yml)
+docker compose exec rabbitmq bash
 
 # Create a new user
 rabbitmqctl add_user myuser strongpassword
