@@ -1,0 +1,317 @@
+services:
+  # ---------------------------------------------------------------
+  # OpenTelemetry Collector
+  # ---------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.160.0
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    environment:
+      LANGFUSE_HOST: ${LANGFUSE_HOST}
+      LANGFUSE_AUTH: ${LANGFUSE_AUTH}
+      OPENOBSERVE_ENDPOINT: ${OPENOBSERVE_ENDPOINT:-http://openobserve:5080/api/default}
+      OPENOBSERVE_AUTH: ${OPENOBSERVE_AUTH}
+    depends_on:
+      langfuse-web:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_started
+      openobserve:
+        condition: service_started
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------
+  # OpenObserve (unified logs / metrics / traces UI)
+  # ---------------------------------------------------------------
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:v1.0.0
+    container_name: openobserve
+    ports:
+      - "5080:5080"   # HTTP UI + OTLP/HTTP
+      - "5081:5081"   # OTLP gRPC
+    environment:
+      ZO_ROOT_USER_EMAIL: ${ZO_ROOT_USER_EMAIL:-admin@example.com}
+      ZO_ROOT_USER_PASSWORD: ${ZO_ROOT_USER_PASSWORD:-Admin1234!}
+      ZO_DATA_DIR: /data
+    volumes:
+      - openobserve_data:/data
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------
+  # MongoDB (optional persistent memory and prompt storage)
+  # ---------------------------------------------------------------
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-Admin1234!}
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "-u",
+          "${MONGO_ROOT_USER:-admin}",
+          "-p",
+          "${MONGO_ROOT_PASSWORD:-Admin1234!}",
+          "--authenticationDatabase",
+          "admin",
+          "--eval",
+          "db.adminCommand('ping')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  mongoexpress:
+    image: mongo-express:1.0.2
+    container_name: mongoexpress
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD:-Admin1234!}@mongodb:27017/?authSource=admin
+      ME_CONFIG_BASICAUTH: "${ME_CONFIG_BASICAUTH:-true}"
+    ports:
+      - "127.0.0.1:8081:8081"
+
+  # ---------------------------------------------------------------
+  # Langfuse Web (UI + API)
+  # ---------------------------------------------------------------
+  langfuse-web:
+    image: langfuse/langfuse:4.30.0
+    container_name: langfuse-web
+    restart: unless-stopped
+    depends_on:
+      minio:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      # Dev convenience: keep users signed in (~1 year) so login is a one-time
+      # event. Langfuse still requires authentication; this only extends the
+      # session lifetime (minutes).
+      AUTH_SESSION_MAX_AGE: ${AUTH_SESSION_MAX_AGE:-525600}
+      SALT: ${SALT}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://langfuse-web:3000/api/public/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------
+  # Langfuse Worker (background jobs)
+  # ---------------------------------------------------------------
+  langfuse-worker:
+    image: langfuse/langfuse-worker:4.30.0
+    container_name: langfuse-worker
+    restart: unless-stopped
+    depends_on:
+      minio:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      NEXTAUTH_URL: http://localhost:3000
+      SALT: ${SALT}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+
+  # ---------------------------------------------------------------
+  # PostgreSQL (Langfuse transactional data)
+  # ---------------------------------------------------------------
+  postgres:
+    image: postgres:17
+    container_name: langfuse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - langfuse-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------
+  # ClickHouse (Langfuse analytics)
+  # ---------------------------------------------------------------
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.12
+    container_name: langfuse-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - langfuse-clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------
+  # Redis (Langfuse caching + job queue)
+  # ---------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: langfuse-redis
+    restart: unless-stopped
+    volumes:
+      - langfuse-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis-cache:
+    image: redis:7-alpine
+    container_name: redis-cache
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_cache_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ---------------------------------------------------------------
+  # MinIO (S3-compatible object storage)
+  # ---------------------------------------------------------------
+  minio:
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r5
+    container_name: langfuse-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"   # S3 API
+      # No console port: this MinIO build (2025.x) dropped the embedded UI.
+      # Inspect the bucket with: docker exec langfuse-minio mc ls -r local/langfuse
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      # Bitnami-only: creates the bucket on boot (official image ignores it).
+      MINIO_DEFAULT_BUCKETS: langfuse
+    volumes:
+      # Must be the path that exists in the image and is owned by UID 1001;
+      # mounting a fresh path would be root-owned and fail with EACCES.
+      - langfuse-minio-data:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ---------------------------------------------------------------
+  # Elasticsearch (structured logs backend via native OTLP intake)
+  # ---------------------------------------------------------------
+  elasticsearch:
+    image: elasticsearch:9.5.1
+    container_name: langfuse-elastic
+    ports:
+      - "9200:9200"
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+
+  # ---------------------------------------------------------------
+  # Kibana (log browser; renders trace_id as a Langfuse link)
+  # ---------------------------------------------------------------
+  kibana:
+    image: kibana:9.5.1
+    container_name: langfuse-kibana
+    ports:
+      - "5601:5601"
+    environment:
+      SERVER_HOST: "0.0.0.0"
+      ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+      xpack.security.enabled: "false"
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+volumes:
+  langfuse-postgres-data:
+  langfuse-clickhouse-data:
+  langfuse-redis-data:
+  langfuse-minio-data:
+  es_data:
+  openobserve_data:
+  mongodb_data:
+  redis_cache_data:

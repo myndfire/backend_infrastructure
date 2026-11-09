@@ -1,0 +1,55 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Keep the log stream high-signal: drop DEBUG records plus lifecycle
+  # "started" markers and retry backoff waits. The completion record and
+  # retry_attempt already carry the useful information.
+  filter/drop_noise:
+    error_mode: ignore
+    logs:
+      log_record:
+        - severity_number == SEVERITY_NUMBER_DEBUG
+        - IsMatch(body.string, ".*_started$")
+        - body.string == "retry_wait"
+  batch:
+
+exporters:
+  otlp_http/langfuse:
+    endpoint: ${env:LANGFUSE_HOST}/api/public/otel
+    headers:
+      Authorization: "Basic ${env:LANGFUSE_AUTH}"
+      x-langfuse-ingestion-version: "4"
+  otlp_http/elasticsearch:
+    endpoint: http://elasticsearch:9200/_otlp
+  # OpenObserve ingests all three signals over OTLP/HTTP. The endpoint must not
+  # have a trailing slash (the collector appends /v1/{signal}).
+  otlp_http/openobserve:
+    endpoint: ${env:OPENOBSERVE_ENDPOINT}
+    headers:
+      Authorization: "Basic ${env:OPENOBSERVE_AUTH}"
+      stream-name: observability
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      # Elasticsearch and OpenObserve receive complete mirrors. Langfuse is an
+      # additional trace-oriented destination.
+      exporters: [otlp_http/elasticsearch, otlp_http/openobserve, otlp_http/langfuse]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp_http/elasticsearch, otlp_http/openobserve]
+    logs:
+      receivers: [otlp]
+      processors: [filter/drop_noise, batch]
+      exporters: [otlp_http/elasticsearch, otlp_http/openobserve]

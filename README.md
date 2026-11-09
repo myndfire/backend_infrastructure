@@ -47,9 +47,20 @@ A modular, containerized local-development stack for AI/LLM applications. Every 
 | `messaging/rabbitmq` | RabbitMQ | `5672`, `15672` | Robust message queue / pub-sub |
 | `messaging/redis` | Redis | `6379` | Lightweight messaging / task broker |
 | `metrics` | Prometheus | `9090` | Time-series metrics storage |
+| `observability/langfuse` | Langfuse + OTel stack | `3000`, `4317`, `4318` | Self-contained Langfuse v4 traces + Elasticsearch/Kibana + OpenObserve (13 containers) |
 | `open-web-ui` | Open WebUI | `8082` | Chat interface for local LLMs |
 | `otel-collector` | OTel Collector | `4319`, `4320` | Receives traces/metrics, fans out to backends |
 | `tracing/jaeger` | Jaeger | `16686` | Distributed tracing UI and storage |
+
+> **Bundled alternative — `observability/langfuse`.** A single compose file that
+> replaces the separate `otel-collector` + `logging/elasticsearch` +
+> `tracing/jaeger` directories: one collector fans out to Langfuse (traces),
+> Elasticsearch/Kibana and OpenObserve. See
+> [`observability/langfuse/README.md`](observability/langfuse/README.md).
+>
+> It reuses ports owned by other directories (`3000`, `6379`, `8081`, `9200`,
+> `27017`, `5601`), so do **not** run it alongside them unless you remap those
+> ports.
 
 ## Requirements
 
